@@ -572,6 +572,77 @@ cdef class DelayVolumeCellState(VolumeCellState):
 
 import sys
 
+cdef Lineage simulate_single_cell_lineage(CSimInterface sim, Volume v,
+                                          np.ndarray timepoints,
+                                          VolumeSimulator vsim,
+                                          VolumeSplitter vsplit):
+    '''
+    Simulate a single-cell lineage given the reactions, the volume and
+    partitioning models, and the desired simulator over a given set of time
+    points. Only tracks the first daughter at each division.
+    Only the tracked daughter will appear in the parent's child list.
+    :param sim: (CSimInterface) The reaction system.
+    :param v: (Volume) The volume model.
+    :param timepoints: (np.ndarray)
+    :param vsim: (VolumeSimulator) The simulator to use.
+    :param vsplit: (VolumeSplitter) The partitioning model to use.
+    :return: (Lineage) Simulated cell lineage output.
+    '''
+    # Prepare a lineage structure to save the data output.
+    cdef Lineage l = Lineage()
+    cdef np.ndarray[np.double_t, ndim=1] c_timepoints = timepoints
+    cdef np.ndarray[np.double_t, ndim=1] c_truncated_timepoints
+    cdef double final_time = c_timepoints[c_timepoints.shape[0]-1]
+
+    # Simulate the first cell.
+    cdef VolumeSSAResult r = vsim.volume_simulate(sim,v, timepoints)
+    cdef Schnitz s = r.get_schnitz()
+    cdef Schnitz daughter_schnitz1, daughter_schnitz2
+    cdef VolumeCellState cs = r.get_final_cell_state()
+    cdef VolumeCellState d1, d2, d1final, d2final
+    cdef np.ndarray daughter_cells
+    s.set_parent(None)
+
+    l.add_schnitz(s)
+
+    cdef double last_split_time = cs.get_time()
+
+    while last_split_time < final_time - 1E-9:
+        # Partition the cell state, get the first daughter
+        daughter_cells = vsplit.partition(cs)
+        d = <VolumeCellState>(daughter_cells[0])
+
+        #Create a new timepoint array and simulate the first daughter and queue
+        # if it doesn't reach final time.
+        c_truncated_timepoints = c_timepoints[c_timepoints > last_split_time]
+
+        sim.set_initial_time(d.get_time())
+        sim.set_initial_state(d.get_state())
+        v.initialize(<double*> d.get_state().data,
+                     <double*> 0,
+                     d.get_time(),
+                     d.get_volume())
+
+        r = vsim.volume_simulate(sim,v,c_truncated_timepoints)
+        daughter_schnitz = r.get_schnitz()
+        d_final = r.get_final_cell_state()
+
+        if d_final.get_time() < final_time - 1E-9:
+            daughter_schnitz.set_parent(s)
+            s.set_daughters(daughter_schnitz, None)
+            l.add_schnitz(daughter_schnitz)
+
+        last_split_time = d_final.get_time()
+        cs = d_final
+
+    return l
+
+def py_simulate_single_cell_lineage(CSimInterface sim, Volume v,
+                                   np.ndarray timepoints,
+                                   VolumeSimulator vsim, VolumeSplitter vsplit):
+    return simulate_cell_lineage(sim,v,timepoints,vsim,vsplit)
+
+
 cdef Lineage simulate_cell_lineage(CSimInterface sim, Volume v, np.ndarray timepoints,
                                    VolumeSimulator vsim, VolumeSplitter vsplit):
 

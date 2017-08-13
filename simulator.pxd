@@ -389,6 +389,9 @@ cdef class DelayVolumeSSASimulator(DelayVolumeSimulator):
 
 
 # Simulation functions for doing cell division related stuff.
+cdef Lineage simulate_single_cell_lineage(CSimInterface sim, Volume v,
+                                    np.ndarray timepoints, VolumeSimulator vsim,
+                                    VolumeSplitter vsplit)
 cdef Lineage simulate_cell_lineage(CSimInterface sim, Volume v, np.ndarray timepoints,
                                     VolumeSimulator vsim, VolumeSplitter vsplit)
 cdef Lineage simulate_delay_cell_lineage(CSimInterface sim, DelayQueue q, Volume v, np.ndarray timepoints,
