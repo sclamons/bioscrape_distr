@@ -1053,6 +1053,18 @@ cdef class Volume:
 
         return 0.0
 
+    cdef Volume copy(self):
+        """
+        Returns a deep copy of the volume object
+        """
+        raise NotImplementedError('Need to implement copy for population simulations')
+
+    def py_copy(self):
+        """
+        Copy function for deep copying
+        :return: a deep copy of the volume object
+        """
+        return self.copy()
 
     def py_get_volume_step(self, np.ndarray[np.double_t,ndim=1] state, np.ndarray[np.double_t,ndim=1] params,
                            double time, double volume, double dt):
@@ -1128,6 +1140,15 @@ cdef class StochasticTimeThresholdVolume(Volume):
         # Compute growth rate yourself.
         self.growth_rate = 0.69314718056 / cell_cycle_time # log(2) / cycle time
 
+
+    cdef Volume copy(self):
+        cdef StochasticTimeThresholdVolume v = StochasticTimeThresholdVolume(self.cell_cycle_time,
+                                                                             self.average_division_volume,
+                                                                             self.division_noise)
+        v.division_time = self.division_time
+        v.current_volume = self.current_volume
+        return v
+
     cdef double get_volume_step(self, double *state, double *params, double time, double volume, double dt):
         """
         Compute a deterministic volume step that is independent of state and parameters.
@@ -1192,10 +1213,14 @@ cdef class StateDependentVolume(Volume):
         growth_rate (Term): the growth rate evaluated based on the state
     """
 
-    def __init__(self, double average_division_volume, double division_noise, growth_rate, Model m):
+    def __init__(self):
+        pass
+
+    def setup(self, double average_division_volume, double division_noise, growth_rate, Model m):
         self.average_division_volume = average_division_volume
         self.division_noise = division_noise
         self.growth_rate = m.parse_general_expression(growth_rate)
+
 
     cdef double get_volume_step(self, double *state, double *params, double time, double volume, double dt):
         cdef double gr = self.growth_rate.evaluate(state,params, time)
@@ -1213,6 +1238,15 @@ cdef class StateDependentVolume(Volume):
         if volume > self.division_volume:
             return 1
         return 0
+
+    cdef Volume copy(self):
+        cdef StateDependentVolume sv = StateDependentVolume()
+        sv.division_noise = self.division_noise
+        sv.division_volume = self.division_volume
+        sv.growth_rate = self.growth_rate
+        sv.average_division_volume = self.average_division_volume
+        sv.current_volume = self.current_volume
+        return sv
 
 
 ##################################################                ####################################################
@@ -1787,20 +1821,22 @@ def convert_sbml_to_string(sbml_file):
     allparams = {}
 
     for s in model.getListOfSpecies():
-        if s.id == "volume" or s.id == "t":
-            warnings.warn("You have defined a species called '" + s.id +
+        sid = s.getIdAttribute()
+        if sid == "volume" or sid == "t":
+            warnings.warn("You have defined a species called '" + sid +
                           ". This is being ignored and treated as a keyword.")
             continue
-        allspecies[s.id] = 0.0
+        allspecies[sid] = 0.0
         if np.isfinite(s.getInitialAmount()):
-            allspecies[s.id] = s.getInitialAmount()
-        if np.isfinite(s.getInitialConcentration()) and allspecies[s.id] == 0:
-            allspecies[s.id] = s.getInitialConcentration()
+            allspecies[sid] = s.getInitialAmount()
+        if np.isfinite(s.getInitialConcentration()) and allspecies[sid] == 0:
+            allspecies[sid] = s.getInitialConcentration()
 
     for p in model.getListOfParameters():
-        allparams[p.id] = 0.0
+        pid = p.getIdAttribute()
+        allparams[pid] = 0.0
         if np.isfinite(p.getValue()):
-            allparams[p.id] = p.getValue()
+            allparams[pid] = p.getValue()
     # Go through reactions one at a time to get stoich and rates.
     for reaction in model.getListOfReactions():
         # Warning message if reversible
@@ -1814,11 +1850,13 @@ def convert_sbml_to_string(sbml_file):
         product_list = []
 
         for reactant in reaction.getListOfReactants():
-            if reactant.species in allspecies:
-                reactant_list.append(reactant.species)
+            reactantspecies = reactant.getSpecies()
+            if reactantspecies in allspecies:
+                reactant_list.append(reactantspecies)
         for product in reaction.getListOfProducts():
-            if product.species in allspecies:
-                product_list.append(product.species)
+            productspecies = product.getSpecies()
+            if productspecies in allspecies:
+                product_list.append(productspecies)
 
         out += ('<reaction text="%s--%s" after="--">\n' % ('+'.join(reactant_list),'+'.join(product_list)) )
         out +=  '    <delay type="none"/>\n'
@@ -1827,9 +1865,10 @@ def convert_sbml_to_string(sbml_file):
         kl = reaction.getKineticLaw()
         # capture any local parameters
         for p in kl.getListOfParameters():
-            allparams[p.id] = 0.0
+            pid = p.getIdAttribute()
+            allparams[pid] = 0.0
             if np.isfinite(p.getValue()):
-                allparams[p.id] = p.getValue()
+                allparams[pid] = p.getValue()
 
 
         # get the formula as a string and then add
@@ -1846,13 +1885,14 @@ def convert_sbml_to_string(sbml_file):
             warnings.warn('Unsupported rule type: %s' % rule.getElementName())
             continue
         rule_formula = libsbml.formulaToL3String(rule.getMath())
-        if rule.variable in allspecies:
-            rule_string = rule.variable + '=' + _add_underscore_to_parameters(rule_formula,allparams)
-        elif rule.variable in allparams:
-            rule_string = '_' + rule.variable + '=' + _add_underscore_to_parameters(rule_formula,allparams)
+        rulevariable = rule.getVariable()
+        if rulevariable in allspecies:
+            rule_string = rulevariable + '=' + _add_underscore_to_parameters(rule_formula,allparams)
+        elif rulevariable in allparams:
+            rule_string = '_' + rulevariable + '=' + _add_underscore_to_parameters(rule_formula,allparams)
         else:
             warnings.warn('SBML: Attempting to assign something that is not a parameter or species %s'
-                          % rule.variable)
+                          % rulevariable)
             continue
 
         out += '<rule type="assignment" frequency="repeated" equation="%s" />\n' % rule_string

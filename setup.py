@@ -18,13 +18,14 @@ extra_compile_args = []
 
 
 # building part
-
-extensions = [Extension('bioscrape.'+s.split('.')[0],[s], **ext_options) for s in sourceFiles]
+src_dir = 'bioscrape'
+extensions = [Extension('bioscrape.'+s.split('.')[0],[src_dir+'/'+s], **ext_options) for s in sourceFiles]
 
 setup(
     name = 'bioscrape',
     packages = ['bioscrape'],
-    package_dir = {'bioscrape' : '.'},
+    package_dir = {'bioscrape' : src_dir},
+    package_data = {'bioscrape': ['*.pxd']},
     ext_modules = cythonize(extensions)
 )
 
