@@ -649,7 +649,7 @@ cdef Lineage simulate_single_cell_lineage(CSimInterface sim, Volume v,
 def py_simulate_single_cell_lineage(CSimInterface sim, Volume v,
                                    np.ndarray timepoints,
                                    VolumeSimulator vsim, VolumeSplitter vsplit):
-    return simulate_cell_lineage(sim,v,timepoints,vsim,vsplit)
+    return simulate_single_cell_lineage(sim,v,timepoints,vsim,vsplit)
 
 
 cdef Lineage simulate_cell_lineage(CSimInterface sim, Volume v, np.ndarray timepoints,
