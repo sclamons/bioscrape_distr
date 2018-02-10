@@ -626,12 +626,12 @@ cdef Lineage simulate_single_cell_lineage(CSimInterface sim, Volume v,
     cdef double last_split_time = cs.get_time()
 
     while last_split_time < final_time - 1E-9:
-        # Partition the cell state, get the first daughter
+        # Partition the cell state, get a random daughter
         daughter_cells = vsplit.partition(cs)
-        d = <VolumeCellState>(daughter_cells[0])
+        d = <VolumeCellState>(daughter_cells[int(cyrandom.random()*2)])
 
-        #Create a new timepoint array and simulate the first daughter and queue
-        # if it doesn't reach final time.
+        #Create a new timepoint array and simulate the selectd daughter and
+        # queue if it doesn't reach final time.
         c_truncated_timepoints = c_timepoints[c_timepoints > last_split_time]
 
         sim.set_initial_time(d.get_time())
